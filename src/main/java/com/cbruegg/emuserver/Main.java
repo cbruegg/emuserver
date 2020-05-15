@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Main {
@@ -104,7 +105,7 @@ public class Main {
 
                 var publicSession = session.toPublic();
                 event.response().putHeader("content-type", "application/json").setStatusCode(HttpURLConnection.HTTP_CREATED).end(publicSessionAdapter.toJson(publicSession));
-            } catch (IOException e) {
+            } catch (IOException | InterruptedException e) {
                 event.response().putHeader("content-type", "text/plain").setStatusCode(HttpURLConnection.HTTP_INTERNAL_ERROR).end("Could not create session!");
             }
         });
@@ -146,7 +147,7 @@ public class Main {
         }
     }
 
-    private static Session createNewSession(File dsServer, File dsServerBiosDir, File rom, @Nullable File initialSaveGame, String ffmpegBin) throws IOException {
+    private static Session createNewSession(File dsServer, File dsServerBiosDir, File rom, @Nullable File initialSaveGame, String ffmpegBin) throws IOException, InterruptedException {
         var sessionId = UUID.randomUUID();
         var sessionDir = Files.createTempDirectory("emuserver-" + sessionId);
         var saveGame = new File(sessionDir.toFile(), rom.getName() + ".dsv");
@@ -201,9 +202,25 @@ public class Main {
 
         // TODO Important: Client needs to consume audio stream at desired rate. That might not be ideal. Find way out?
 
+        var videoDiscardThreadStartedSema = new Semaphore(0);
+        var discardVideo = new AtomicBoolean(true);
+        var videoDiscardThread = new Thread(() -> {
+            videoDiscardThreadStartedSema.release();
+            while (!stop.get()) {
+                if (discardVideo.get()) {
+                    try {
+                        //noinspection ResultOfMethodCallIgnored
+                        videoStream.skip(2048);
+                    } catch (IOException ignored) {
+                    }
+                }
+            }
+        });
+        videoDiscardThread.start();
+        videoDiscardThreadStartedSema.acquire();
+
         BlockingQueue<Integer> videoPortQueue = new ArrayBlockingQueue<>(1);
         var videoServerThread = new Thread(() -> {
-            // TODO Discard while no client is connected?
             // TODO Dual-stack socket pls
             try (var videoSocket = new ServerSocket(0, 2, InetAddress.getByName("0.0.0.0"))) {
                 if (!videoPortQueue.offer(videoSocket.getLocalPort())) {
@@ -211,7 +228,9 @@ public class Main {
                 }
                 while (!stop.get()) {
                     try {
+                        discardVideo.set(true);
                         var connection = videoSocket.accept();
+                        discardVideo.set(false);
                         var outputStream = connection.getOutputStream();
                         IOUtils.transfer(videoStream, outputStream, 8192);
                     } catch (IOException e) {
