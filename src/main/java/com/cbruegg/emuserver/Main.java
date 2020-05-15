@@ -13,6 +13,7 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -21,6 +22,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Main {
     public static void main(String[] args) {
+        var ffmpegPath = args.length > 0 ? args[0] : "ffmpeg";
+
         var romDir = new File("roms");
         if (!romDir.exists() && !romDir.mkdirs()) {
             System.err.println("Could not create ROM directory " + romDir + ", exiting!");
@@ -32,8 +35,8 @@ public class Main {
             return;
         }
 
-        var melonDsServerFile = new File("/mnt/c/Users/mail/CLionProjects/melonDS/cmake-build-release-server/melonDS-server");
-        var melonDsBiosDir = new File("/mnt/c/Users/mail/CLionProjects/melonDS/bios");
+        var melonDsServerFile = new File("C:\\Users\\mail\\CLionProjects\\melonDS\\build\\dist-server\\melonDS-server.exe");
+        var melonDsBiosDir = new File("C:\\Users\\mail\\CLionProjects\\melonDS\\bios");
 
         var moshi = new Moshi.Builder().add(UUID.class, new UUIDAdapter()).build();
         var publicSessionAdapter = moshi.adapter(Session.Public.class);
@@ -96,7 +99,7 @@ public class Main {
             var initialSaveGame = fileUploads.stream().findFirst().map(upload -> new File(upload.uploadedFileName())).orElse(null);
             try {
 
-                var session = createNewSession(melonDsServerFile, melonDsBiosDir, romFile, initialSaveGame);
+                var session = createNewSession(melonDsServerFile, melonDsBiosDir, romFile, initialSaveGame, ffmpegPath);
                 sessions.put(session.getUuid(), session);
 
                 var publicSession = session.toPublic();
@@ -126,7 +129,11 @@ public class Main {
             }
         });
 
-        httpServer.requestHandler(router).listen(1111);
+        httpServer.requestHandler(router).listen(1115);
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            sessions.values().forEach(Session::stop);
+        }));
 
         //noinspection InfiniteLoopStatement
         while (true) {
@@ -139,7 +146,7 @@ public class Main {
         }
     }
 
-    private static Session createNewSession(File dsServer, File dsServerBiosDir, File rom, @Nullable File initialSaveGame) throws IOException {
+    private static Session createNewSession(File dsServer, File dsServerBiosDir, File rom, @Nullable File initialSaveGame, String ffmpegBin) throws IOException {
         var sessionId = UUID.randomUUID();
         var sessionDir = Files.createTempDirectory("emuserver-" + sessionId);
         var saveGame = new File(sessionDir.toFile(), rom.getName() + ".dsv");
@@ -149,30 +156,24 @@ public class Main {
             throw new IOException("Could not import initial savegame!");
         }
 
-        var screenPipe = sessionDir.resolve("screen.bgra");
-        var audioPipe = sessionDir.resolve("audio.pcm");
-        var inputPipe = sessionDir.resolve("input");
-
         var dsServerProcess = new ProcessBuilder(
                 dsServer.getPath(),
                 dsServerBiosDir.toString(),
-                screenPipe.toString(),
-                audioPipe.toString(),
-                inputPipe.toString(),
                 rom.toString(),
                 saveGame.toString())
-                .inheritIO()
+                .redirectError(ProcessBuilder.Redirect.INHERIT)
                 .start();
 
-        IOUtils.waitForPathsToExist(screenPipe, audioPipe, inputPipe);
+        var dsServerReader = new DsServerOutputReader(dsServerProcess.getInputStream());
+        var portSpec = dsServerReader.readPortSpec();
 
         var ffmpegVideoProcess = new ProcessBuilder(
-                "ffmpeg",
+                ffmpegBin,
                 "-f", "rawvideo",
                 "-pix_fmt", "bgra",
                 "-s:v", "256x384",
                 "-r", "60",
-                "-i", screenPipe.toString(),
+                "-i", "tcp://localhost:" + portSpec.screenSocketPort(),
                 "-tune", "zerolatency",
                 "-c:v", "libx264",
                 "-f", "mpegts",
@@ -182,11 +183,11 @@ public class Main {
         var videoStream = ffmpegVideoProcess.getInputStream();
 
         var ffmpegAudioProcess = new ProcessBuilder(
-                "ffmpeg",
+                ffmpegBin,
                 "-f", "s16le",
                 "-ar", "32.768k",
                 "-ac", "2",
-                "-i", audioPipe.toString(),
+                "-i", "tcp://localhost:" + portSpec.audioSocketPort(),
                 "-b:a", "128k",
                 "-c:a", "aac",
                 "-f", "adts",
@@ -195,14 +196,15 @@ public class Main {
                 .start();
         var audioStream = ffmpegAudioProcess.getInputStream();
 
-        var gameInputStream = new FileOutputStream(inputPipe.toFile());
+        var gameInputSocket = new Socket("localhost", portSpec.inputSocketPort());
+        var gameInputStream = gameInputSocket.getOutputStream();
 
         // TODO Important: Client needs to consume audio stream at desired rate. That might not be ideal. Find way out?
 
         BlockingQueue<Integer> videoPortQueue = new ArrayBlockingQueue<>(1);
         var videoServerThread = new Thread(() -> {
             // TODO Discard while no client is connected?
-
+            // TODO Dual-stack socket pls
             try (var videoSocket = new ServerSocket(0, 2, InetAddress.getByName("0.0.0.0"))) {
                 if (!videoPortQueue.offer(videoSocket.getLocalPort())) {
                     throw new AssertionError("Queue should always have enough space!");

@@ -2,7 +2,6 @@ package com.cbruegg.emuserver.utils;
 
 import java.io.*;
 import java.math.BigInteger;
-import java.net.HttpURLConnection;
 import java.nio.file.Path;
 import java.security.DigestOutputStream;
 import java.security.MessageDigest;
