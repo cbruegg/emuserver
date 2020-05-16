@@ -210,7 +210,7 @@ public class Main {
                 if (discardVideo.get()) {
                     try {
                         //noinspection ResultOfMethodCallIgnored
-                        videoStream.skip(2048);
+                        videoStream.skip(videoStream.available());
                     } catch (IOException ignored) {
                     }
                 }
@@ -232,7 +232,7 @@ public class Main {
                         var connection = videoSocket.accept();
                         discardVideo.set(false);
                         var outputStream = connection.getOutputStream();
-                        IOUtils.transfer(videoStream, outputStream, 8192);
+                        IOUtils.transfer(videoStream, outputStream, 1024);
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
