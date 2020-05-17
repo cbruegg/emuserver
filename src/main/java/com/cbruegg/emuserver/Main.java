@@ -223,8 +223,8 @@ public class Main {
                             var nextAudioFrameByteSize = Math.toIntExact(nextAudioFrameByteSizeLong);
                             outputStream.write(nextAudioFrameByteSizeBuffer);
 
-                            audioStream.readNBytes(audioBuffer, 0, (int) nextAudioFrameByteSize);
-                            outputStream.write(audioBuffer, 0, (int) nextAudioFrameByteSize);
+                            audioStream.readNBytes(audioBuffer, 0, nextAudioFrameByteSize);
+                            outputStream.write(audioBuffer, 0, nextAudioFrameByteSize);
                             outputStream.flush();
 
                             //  // TODO Fix readInt
