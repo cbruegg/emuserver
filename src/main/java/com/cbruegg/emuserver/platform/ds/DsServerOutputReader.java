@@ -1,4 +1,4 @@
-package com.cbruegg.emuserver;
+package com.cbruegg.emuserver.platform.ds;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -12,7 +12,7 @@ public class DsServerOutputReader implements AutoCloseable {
 
     private static final Pattern portSpecPattern = Pattern.compile("\\[SERVOUT] (screen|audio|input): :([0-9]+)");
 
-    record PortSpec(int screenSocketPort, int audioSocketPort, int inputSocketPort) {
+    public static record PortSpec(int screenSocketPort, int audioSocketPort, int inputSocketPort) {
     }
 
     private final Scanner serverOutputScanner;

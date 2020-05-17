@@ -1,5 +1,7 @@
 package com.cbruegg.emuserver;
 
+import com.cbruegg.emuserver.platform.ds.DsServerOutputReader;
+import com.cbruegg.emuserver.platform.ds.JpegCompressor;
 import com.cbruegg.emuserver.serialization.UUIDAdapter;
 import com.cbruegg.emuserver.utils.ConcurrentUtils;
 import com.cbruegg.emuserver.utils.IOUtils;
@@ -9,7 +11,8 @@ import io.vertx.ext.web.Router;
 import io.vertx.ext.web.handler.BodyHandler;
 
 import javax.annotation.Nullable;
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -18,8 +21,9 @@ import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+// TODO Remove ffmpeg
 
 public class Main {
     public static void main(String[] args) {
@@ -130,7 +134,7 @@ public class Main {
             }
         });
 
-        httpServer.requestHandler(router).listen(1115);
+        httpServer.requestHandler(router).listen(1114);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             sessions.values().forEach(Session::stop);
@@ -168,56 +172,14 @@ public class Main {
         var dsServerReader = new DsServerOutputReader(dsServerProcess.getInputStream());
         var portSpec = dsServerReader.readPortSpec();
 
-        var ffmpegVideoProcess = new ProcessBuilder(
-                ffmpegBin,
-                "-f", "rawvideo",
-                "-pix_fmt", "bgra",
-                "-s:v", "256x384",
-                "-r", "60",
-                "-i", "tcp://localhost:" + portSpec.screenSocketPort(),
-                "-tune", "zerolatency",
-                "-c:v", "libx264",
-                "-f", "mpegts",
-                "pipe:1")
-                .redirectError(ProcessBuilder.Redirect.INHERIT)
-                .start();
-        var videoStream = ffmpegVideoProcess.getInputStream();
+        var screenInputSocket = new Socket("localhost", portSpec.screenSocketPort());
+        var videoStream = screenInputSocket.getInputStream();
 
-        var ffmpegAudioProcess = new ProcessBuilder(
-                ffmpegBin,
-                "-f", "s16le",
-                "-ar", "32.768k",
-                "-ac", "2",
-                "-i", "tcp://localhost:" + portSpec.audioSocketPort(),
-                "-b:a", "128k",
-                "-c:a", "aac",
-                "-f", "adts",
-                "pipe:1")
-                .redirectError(ProcessBuilder.Redirect.INHERIT)
-                .start();
-        var audioStream = ffmpegAudioProcess.getInputStream();
+        var audioInputSocket = new Socket("localhost", portSpec.audioSocketPort());
+        var audioStream = audioInputSocket.getInputStream();
 
         var gameInputSocket = new Socket("localhost", portSpec.inputSocketPort());
         var gameInputStream = gameInputSocket.getOutputStream();
-
-        // TODO Important: Client needs to consume audio stream at desired rate. That might not be ideal. Find way out?
-
-        var videoDiscardThreadStartedSema = new Semaphore(0);
-        var discardVideo = new AtomicBoolean(true);
-        var videoDiscardThread = new Thread(() -> {
-            videoDiscardThreadStartedSema.release();
-            while (!stop.get()) {
-                if (discardVideo.get()) {
-                    try {
-                        //noinspection ResultOfMethodCallIgnored
-                        videoStream.skip(videoStream.available());
-                    } catch (IOException ignored) {
-                    }
-                }
-            }
-        });
-        videoDiscardThread.start();
-        videoDiscardThreadStartedSema.acquire();
 
         BlockingQueue<Integer> videoPortQueue = new ArrayBlockingQueue<>(1);
         var videoServerThread = new Thread(() -> {
@@ -228,11 +190,9 @@ public class Main {
                 }
                 while (!stop.get()) {
                     try {
-                        discardVideo.set(true);
                         var connection = videoSocket.accept();
-                        discardVideo.set(false);
                         var outputStream = connection.getOutputStream();
-                        IOUtils.transfer(videoStream, outputStream, 1024);
+                        JpegCompressor.compress(videoStream, outputStream);
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
@@ -250,18 +210,36 @@ public class Main {
                 if (!audioPortQueue.offer(audioSocket.getLocalPort())) {
                     throw new AssertionError("Queue should always have enough space!");
                 }
+                byte[] audioBuffer = new byte[0x2000];
+                byte[] nextAudioFrameByteSizeBuffer = new byte[4];
                 while (!stop.get()) {
                     try {
                         var connection = audioSocket.accept();
                         var outputStream = connection.getOutputStream();
-                        IOUtils.transfer(audioStream, outputStream, 1024);
+
+                        while (!stop.get()) {
+                            audioStream.readNBytes(nextAudioFrameByteSizeBuffer, 0, 4);
+                            var nextAudioFrameByteSizeLong = (((long) nextAudioFrameByteSizeBuffer[0] & 0xFF) << 0) + (((long) nextAudioFrameByteSizeBuffer[1] & 0xFF) << 8) + (((long) nextAudioFrameByteSizeBuffer[2] & 0xFF) << 16) + (((long) nextAudioFrameByteSizeBuffer[3] & 0xFF) << 24);
+                            var nextAudioFrameByteSize = Math.toIntExact(nextAudioFrameByteSizeLong);
+                            outputStream.write(nextAudioFrameByteSizeBuffer);
+
+                            audioStream.readNBytes(audioBuffer, 0, (int) nextAudioFrameByteSize);
+                            outputStream.write(audioBuffer, 0, (int) nextAudioFrameByteSize);
+                            outputStream.flush();
+
+                            //  // TODO Fix readInt
+//                            var nextAudioFrameByteSize = IOUtils.readInt(audioStream);
+//                            assert nextAudioFrameByteSize <= audioBuffer.length;
+//                            audioStream.readNBytes(audioBuffer, 0, nextAudioFrameByteSize);
+//                            // TODO We could compress the buffer here
+//                            outputStream.write(audioBuffer, 0, nextAudioFrameByteSize);
+                        }
                     } catch (IOException e) {
-                        e.printStackTrace();
+                        System.err.println("Audio write error, reconnecting...");
                     }
                 }
             } catch (IOException e) {
-                System.err.println("Audio socket error!");
-                e.printStackTrace();
+                System.err.println("Could not start audio server!");
             }
         });
         audioServerThread.start();
@@ -288,7 +266,7 @@ public class Main {
         });
         inputServerThread.start();
 
-        var processes = List.of(ffmpegVideoProcess, ffmpegAudioProcess, dsServerProcess);
+        var processes = List.of(dsServerProcess);
 
         return new Session(sessionId,
                 stop,

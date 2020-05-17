@@ -38,20 +38,6 @@ public class IOUtils {
         return transferred;
     }
 
-    @SuppressWarnings("BusyWait")
-    public static void waitForPathsToExist(Path... paths) {
-        while (true) {
-            if (Arrays.stream(paths).allMatch(path -> path.toFile().exists())) {
-                return;
-            } else {
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ignored) {
-                }
-            }
-        }
-    }
-
     public static String md5(File f) throws IOException {
         MessageDigest md;
         try {
@@ -67,5 +53,11 @@ public class IOUtils {
 
         var fx = "%0" + (md.getDigestLength() * 2) + "x";
         return String.format(fx, new BigInteger(1, md.digest()));
+    }
+
+    public static int readInt(InputStream inputStream) throws IOException {
+        byte[] buffer = new byte[4];
+        inputStream.readNBytes(buffer, 0, 4);
+        return (buffer[0] << 24) + (buffer[1] << 16) + (buffer[2] << 8) + buffer[3];
     }
 }
