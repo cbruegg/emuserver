@@ -33,7 +33,7 @@ public class JpegCompressor {
             var imageIntBuffer = imageBuffer.asIntBuffer();
             var imageIntArray = new int[imageIntBuffer.remaining()];
             // TYPE_INT_RGB ust ignores alpha
-            var bufferedImage = new BufferedImage(SINGLE_SCREEN_WIDTH, SINGLE_SCREEN_HEIGHT * 2, BufferedImage.TYPE_INT_RGB);
+            var bufferedImage = new BufferedImage(SINGLE_SCREEN_WIDTH, SINGLE_SCREEN_HEIGHT * 2, BufferedImage.TYPE_INT_BGR);
             while (fromChannel.read(imageBuffer) >= 0) {
                 if (!imageBuffer.hasRemaining()) {
                     imageIntBuffer.get(imageIntArray);
