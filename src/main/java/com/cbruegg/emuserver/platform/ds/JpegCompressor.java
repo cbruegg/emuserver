@@ -45,6 +45,7 @@ public class JpegCompressor {
                     into.write(size >> 16);
                     into.write(size >> 8);
                     into.write(size);
+                    into.flush();
                     jpegOutputBuffer.writeTo(into);
                     into.flush();
 

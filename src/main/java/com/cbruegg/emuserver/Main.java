@@ -24,6 +24,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 // TODO Remove ffmpeg
+// TODO Kill stale sessions
 
 public class Main {
     public static void main(String[] args) {
@@ -222,6 +223,7 @@ public class Main {
                             var nextAudioFrameByteSizeLong = (((long) nextAudioFrameByteSizeBuffer[0] & 0xFF) << 0) + (((long) nextAudioFrameByteSizeBuffer[1] & 0xFF) << 8) + (((long) nextAudioFrameByteSizeBuffer[2] & 0xFF) << 16) + (((long) nextAudioFrameByteSizeBuffer[3] & 0xFF) << 24);
                             var nextAudioFrameByteSize = Math.toIntExact(nextAudioFrameByteSizeLong);
                             outputStream.write(nextAudioFrameByteSizeBuffer);
+                            outputStream.flush();
 
                             audioStream.readNBytes(audioBuffer, 0, nextAudioFrameByteSize);
                             outputStream.write(audioBuffer, 0, nextAudioFrameByteSize);
