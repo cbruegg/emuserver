@@ -192,6 +192,9 @@ public class Main {
                 while (!stop.get()) {
                     try {
                         var connection = videoSocket.accept();
+                        connection.setTcpNoDelay(true);
+                        connection.setTrafficClass(0x10 /* IPTOS_LOWDELAY */);
+                        connection.setSendBufferSize(1);
                         var outputStream = connection.getOutputStream();
                         JpegCompressor.compress(videoStream, outputStream);
                     } catch (IOException e) {
@@ -216,6 +219,9 @@ public class Main {
                 while (!stop.get()) {
                     try {
                         var connection = audioSocket.accept();
+                        connection.setTcpNoDelay(true);
+                        connection.setTrafficClass(0x10 /* IPTOS_LOWDELAY */);
+                        connection.setSendBufferSize(1);
                         var outputStream = connection.getOutputStream();
 
                         while (!stop.get()) {
@@ -255,7 +261,28 @@ public class Main {
                 while (!stop.get()) {
                     try {
                         var connection = inputSocket.accept();
-                        IOUtils.transfer(connection.getInputStream(), gameInputStream, 4);
+                        // connection.setTcpNoDelay(true);
+                        // connection.setTrafficClass(0x10 /* IPTOS_LOWDELAY */);
+                        // connection.setReceiveBufferSize(1);
+                        // connection.setSendBufferSize(1);
+                        var inputStream = connection.getInputStream();
+
+                        byte[] lineBuffer = new byte[4 + 256];
+                        while (!stop.get()) {
+                            if (inputStream.readNBytes(lineBuffer, 0, 4) < 4) {
+                                throw new IOException("EOF");
+                            }
+
+                            int nextSize = (((int) lineBuffer[0]) << 24) + (((int) lineBuffer[1]) << 16) + (((int) lineBuffer[2]) << 8) + ((int) lineBuffer[3]);
+                            if (4 + nextSize > lineBuffer.length) {
+                                lineBuffer = new byte[4 + nextSize];
+                            }
+                            if (inputStream.readNBytes(lineBuffer, 4, nextSize) < nextSize) {
+                                throw new IOException("EOF");
+                            }
+
+                            gameInputStream.write(lineBuffer, 4, nextSize);
+                        }
                     } catch (IOException e) {
                         e.printStackTrace();
                     }

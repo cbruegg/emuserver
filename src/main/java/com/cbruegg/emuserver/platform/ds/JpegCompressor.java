@@ -1,6 +1,9 @@
 package com.cbruegg.emuserver.platform.ds;
 
+import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.plugins.jpeg.JPEGImageWriteParam;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -20,6 +23,11 @@ public class JpegCompressor {
     }
 
     public static void compress(InputStream from, OutputStream into) throws IOException {
+        int frame = 0;
+
+        var jpegParams = new JPEGImageWriteParam(null);
+        jpegParams.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+        jpegParams.setCompressionQuality(0.95f);
         var jpegWriter = ImageIO.getImageWritersByFormatName("jpg").next();
         try (var jpegOutputBuffer = new ByteArrayOutputStream(SINGLE_SCREEN_SIZE_BYTES * 2);
              var imageOutputStream = ImageIO.createImageOutputStream(jpegOutputBuffer);
@@ -34,20 +42,28 @@ public class JpegCompressor {
             var imageIntArray = new int[imageIntBuffer.remaining()];
             // TYPE_INT_RGB ust ignores alpha
             var bufferedImage = new BufferedImage(SINGLE_SCREEN_WIDTH, SINGLE_SCREEN_HEIGHT * 2, BufferedImage.TYPE_INT_BGR);
+            var iioImage = new IIOImage(bufferedImage, null, null);
+
+            var sizeBuf = new byte[4];
             while (fromChannel.read(imageBuffer) >= 0) {
                 if (!imageBuffer.hasRemaining()) {
                     imageIntBuffer.get(imageIntArray);
                     bufferedImage.setRGB(0, 0, SINGLE_SCREEN_WIDTH, SINGLE_SCREEN_HEIGHT * 2, imageIntArray, 0, SINGLE_SCREEN_WIDTH);
-                    jpegWriter.write(bufferedImage);
+                    jpegWriter.write(null, iioImage, jpegParams);
 
                     var size = jpegOutputBuffer.size();
-                    into.write(size >> 24);
-                    into.write(size >> 16);
-                    into.write(size >> 8);
-                    into.write(size);
+                    sizeBuf[0] = (byte) (size >> 24);
+                    sizeBuf[1] = (byte) (size >> 16);
+                    sizeBuf[2] = (byte) (size >> 8);
+                    sizeBuf[3] = (byte) (size);
+                    into.write(sizeBuf);
                     into.flush();
                     jpegOutputBuffer.writeTo(into);
                     into.flush();
+
+                    if (frame++ % 120 == 0) {
+                        System.out.println("Flushed frame " + (frame));
+                    }
 
                     jpegOutputBuffer.reset();
                     imageIntBuffer.clear();
