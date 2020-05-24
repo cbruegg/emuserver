@@ -171,7 +171,7 @@ public class Main {
                 event.response().putHeader("content-type", "application/octet-stream").sendFile(saveGame.getAbsolutePath()).end();
             }
         });
-        router.get("/roms/nds/:rommd5/session/:uuid/savestate").handler(event -> {
+        router.get("/roms/nds/:rommd5/session/:uuid/savestate").blockingHandler(event -> {
             var uuid = UUID.fromString(event.pathParam("uuid"));
             var session = sessions.get(uuid);
             if (session == null) {
@@ -179,7 +179,10 @@ public class Main {
             } else {
                 try {
                     var saveState = session.getSaveState();
-                    event.response().putHeader("content-type", "application/octet-stream").sendFile(saveState.toString()).end();
+                    event.response().putHeader("content-type", "application/octet-stream")
+                            .sendFile(saveState.toString())
+                            .endHandler(endEvent -> saveState.toFile().delete())
+                            .end();
                 } catch (IOException e) {
                     event.response().putHeader("content-type", "text/plain").setStatusCode(HttpURLConnection.HTTP_INTERNAL_ERROR).end("Could not create session!");
                 }
@@ -293,6 +296,7 @@ public class Main {
                 e.printStackTrace();
             }
         });
+        videoServerThread.setName("VideoServer");
         videoServerThread.start();
 
         BlockingQueue<Integer> audioPortQueue = new ArrayBlockingQueue<>(1);
@@ -337,6 +341,7 @@ public class Main {
                 System.err.println("Could not start audio server!");
             }
         });
+        audioServerThread.setName("AudioServer");
         audioServerThread.start();
 
         BlockingQueue<Integer> inputPortQueue = new ArrayBlockingQueue<>(1);
@@ -385,6 +390,7 @@ public class Main {
             }
 
         });
+        inputServerThread.setName("InputServer");
         inputServerThread.start();
 
         var stopSaveWatcher = new AtomicBoolean(false);
@@ -420,6 +426,7 @@ public class Main {
                 System.err.println("Could not start save game server!");
             }
         });
+        saveGameNotifier.setName("SaveGameNotifier");
         saveGameNotifier.start();
 
         var saveWatcher = new Thread(() -> {
@@ -462,6 +469,7 @@ public class Main {
                 throw new RuntimeException(e);
             }
         });
+        saveWatcher.setName("SaveWatcher");
         saveWatcher.start();
 
         var processes = List.of(dsServerProcess);

@@ -8,11 +8,14 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 class Session {
     record Public(UUID uuid, int videoPort, int audioPort, int inputPort, int saveGameNotifierPort) {
@@ -122,14 +125,34 @@ class Session {
         new Command.LoadGameSave().writeTo(gameInputStream, gameInputStreamMutex, gameInputConfirmationStream);
     }
 
+//    public Path getSaveState() throws IOException {
+//        var saveStateFile = Files.createTempFile(getDir().toPath(), "savestate", null);
+//        new Command.SaveState(saveStateFile.toAbsolutePath().toString()).writeTo(gameInputStream, gameInputStreamMutex, gameInputConfirmationStream);
+//        return saveStateFile;
+//    }
+//
+//    public void loadSaveState(Path saveState) throws IOException {
+//        new Command.LoadState(saveState.toAbsolutePath().toString()).writeTo(gameInputStream, gameInputStreamMutex, gameInputConfirmationStream);
+//    }
+
     public Path getSaveState() throws IOException {
         var saveStateFile = Files.createTempFile(getDir().toPath(), "savestate", null);
         new Command.SaveState(saveStateFile.toAbsolutePath().toString()).writeTo(gameInputStream, gameInputStreamMutex, gameInputConfirmationStream);
-        return saveStateFile;
+        var gzippedSaveStateFile = Files.createTempFile(getDir().toPath(), "savestate", ".gz");
+        try (var outputStream = new GZIPOutputStream(Files.newOutputStream(gzippedSaveStateFile))) {
+            Files.copy(saveStateFile, outputStream);
+        }
+        saveStateFile.toFile().delete();
+        return gzippedSaveStateFile;
     }
 
     public void loadSaveState(Path saveState) throws IOException {
-        new Command.LoadState(saveState.toAbsolutePath().toString()).writeTo(gameInputStream, gameInputStreamMutex, gameInputConfirmationStream);
+        var unzippedSaveStateFile = Files.createTempFile(getDir().toPath(), "savestate", ".gz");
+        try (var inputStream = new GZIPInputStream(Files.newInputStream(saveState))) {
+            Files.copy(inputStream, unzippedSaveStateFile, StandardCopyOption.REPLACE_EXISTING);
+        }
+        new Command.LoadState(unzippedSaveStateFile.toAbsolutePath().toString()).writeTo(gameInputStream, gameInputStreamMutex, gameInputConfirmationStream);
+        unzippedSaveStateFile.toFile().delete();
     }
 
     public Public toPublic() {

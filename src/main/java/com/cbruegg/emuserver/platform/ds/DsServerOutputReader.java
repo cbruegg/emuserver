@@ -55,6 +55,7 @@ public class DsServerOutputReader implements AutoCloseable {
                 }
             }
         });
+        thread.setName("DsServerOutputReader");
         thread.start();
     }
 
