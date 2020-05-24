@@ -1,14 +1,40 @@
 package com.cbruegg.emuserver.command;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.locks.Lock;
+
 public interface Command {
     String getId();
+
+    default boolean requiresConfirmation() {
+        return false;
+    }
 
     default String getArguments() {
         return "";
     }
 
     default String serialize() {
-        return getId() + " " + getArguments();
+        return getId() + " " + getArguments() + "\n";
+    }
+
+    default void writeTo(OutputStream outputStream, Lock lock, InputStream gameInputConfirmationStream) throws IOException {
+        var bytes = serialize().getBytes(StandardCharsets.UTF_8);
+        var lengthBytes = new byte[]{(byte) (bytes.length >> 24), (byte) (bytes.length >> 16), (byte) (bytes.length >> 8), (byte) (bytes.length)};
+        lock.lock();
+        try {
+            outputStream.write(lengthBytes);
+            outputStream.write(bytes);
+
+            if (requiresConfirmation()) {
+                gameInputConfirmationStream.readNBytes(256);
+            }
+        } finally {
+            lock.unlock();
+        }
     }
 
     record Stop() implements Command {
@@ -77,17 +103,37 @@ public interface Command {
         }
     }
 
-    record SaveState() implements Command {
+    record SaveState(String fileName) implements Command {
         @Override
         public String getId() {
             return "SaveState";
         }
+
+        @Override
+        public String getArguments() {
+            return fileName;
+        }
+
+        @Override
+        public boolean requiresConfirmation() {
+            return true;
+        }
     }
 
-    record LoadState() implements Command {
+    record LoadState(String fileName) implements Command {
         @Override
         public String getId() {
             return "LoadState";
+        }
+
+        @Override
+        public String getArguments() {
+            return fileName;
+        }
+
+        @Override
+        public boolean requiresConfirmation() {
+            return true;
         }
     }
 

@@ -18,7 +18,6 @@ import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -172,6 +171,45 @@ public class Main {
                 event.response().putHeader("content-type", "application/octet-stream").sendFile(saveGame.getAbsolutePath()).end();
             }
         });
+        router.get("/roms/nds/:rommd5/session/:uuid/savestate").handler(event -> {
+            var uuid = UUID.fromString(event.pathParam("uuid"));
+            var session = sessions.get(uuid);
+            if (session == null) {
+                event.response().putHeader("content-type", "text/plain").setStatusCode(HttpURLConnection.HTTP_NOT_FOUND).end("Session with UUID " + uuid + " does not exist!");
+            } else {
+                try {
+                    var saveState = session.getSaveState();
+                    event.response().putHeader("content-type", "application/octet-stream").sendFile(saveState.toString()).end();
+                } catch (IOException e) {
+                    event.response().putHeader("content-type", "text/plain").setStatusCode(HttpURLConnection.HTTP_INTERNAL_ERROR).end("Could not create session!");
+                }
+            }
+        });
+        router.post("/roms/nds/:rommd5/session/:uuid/savestate").blockingHandler(event -> {
+            var uuid = UUID.fromString(event.pathParam("uuid"));
+            var session = sessions.get(uuid);
+            if (session == null) {
+                event.response().putHeader("content-type", "text/plain").setStatusCode(HttpURLConnection.HTTP_NOT_FOUND).end("Session with UUID " + uuid + " does not exist!");
+                return;
+            }
+
+            var fileUploads = event.fileUploads();
+            if (fileUploads.size() != 1) {
+                event.response().putHeader("content-type", "text/plain").setStatusCode(HttpURLConnection.HTTP_BAD_REQUEST).end("Must supply one savegame!");
+                return;
+            }
+
+            var uploadedSaveState = fileUploads.stream().findFirst().map(upload -> new File(upload.uploadedFileName())).orElseThrow();
+
+            try {
+                session.loadSaveState(uploadedSaveState.toPath());
+                uploadedSaveState.deleteOnExit();
+                uploadedSaveState.delete();
+                event.response().putHeader("content-type", "text/plain").setStatusCode(HttpURLConnection.HTTP_OK).end();
+            } catch (IOException e) {
+                event.response().putHeader("content-type", "text/plain").setStatusCode(HttpURLConnection.HTTP_INTERNAL_ERROR).end("Could not create session!");
+            }
+        });
 
         httpServer.requestHandler(router).listen(1114);
 
@@ -227,25 +265,9 @@ public class Main {
         var audioStream = audioInputSocket.getInputStream();
 
         var gameInputSocket = new Socket("localhost", portSpec.inputSocketPort());
+        var gameInputConfirmationStream = gameInputSocket.getInputStream();
         var gameInputStream = gameInputSocket.getOutputStream();
         var gameInputStreamMutex = new ReentrantLock();
-
-        Runnable onSaveGameUploaded = () -> {
-            try {
-                var bytes = "LoadGameSave\n".getBytes(StandardCharsets.UTF_8);
-                var lengthBytes = new byte[]{(byte) (bytes.length >> 24), (byte) (bytes.length >> 16), (byte) (bytes.length >> 8), (byte) (bytes.length)};
-                gameInputStreamMutex.lock();
-                try {
-                    gameInputStream.write(lengthBytes);
-                    gameInputStream.write(bytes);
-                } finally {
-                    gameInputStreamMutex.unlock();
-                }
-            } catch (IOException e) {
-                // TODO
-                throw new RuntimeException(e);
-            }
-        };
 
         BlockingQueue<Integer> videoPortQueue = new ArrayBlockingQueue<>(1);
         var videoServerThread = new Thread(() -> {
@@ -455,17 +477,9 @@ public class Main {
                 ConcurrentUtils.takeUninterruptibly(inputPortQueue),
                 ConcurrentUtils.takeUninterruptibly(saveGameNotifierPortQueue),
                 lastKnownSaveGameBytes,
-                onSaveGameUploaded);
-    }
-
-    private static void ensureCopy(Path from, Path to) {
-        while (true) {
-            try {
-                Files.copy(from, to);
-                break;
-            } catch (IOException ignored) {
-            }
-        }
+                gameInputStream,
+                gameInputStreamMutex,
+                gameInputConfirmationStream);
     }
 
 }
