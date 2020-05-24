@@ -26,14 +26,13 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 
 // TODO Remove ffmpeg
 // TODO Kill stale sessions
 
 public class Main {
     public static void main(String[] args) {
-        var ffmpegPath = args.length > 0 ? args[0] : "ffmpeg";
-
         var romDir = new File("roms");
         if (!romDir.exists() && !romDir.mkdirs()) {
             System.err.println("Could not create ROM directory " + romDir + ", exiting!");
@@ -229,13 +228,19 @@ public class Main {
 
         var gameInputSocket = new Socket("localhost", portSpec.inputSocketPort());
         var gameInputStream = gameInputSocket.getOutputStream();
+        var gameInputStreamMutex = new ReentrantLock();
 
         Runnable onSaveGameUploaded = () -> {
             try {
                 var bytes = "LoadGameSave\n".getBytes(StandardCharsets.UTF_8);
                 var lengthBytes = new byte[]{(byte) (bytes.length >> 24), (byte) (bytes.length >> 16), (byte) (bytes.length >> 8), (byte) (bytes.length)};
-                gameInputStream.write(lengthBytes);
-                gameInputStream.write(bytes);
+                gameInputStreamMutex.lock();
+                try {
+                    gameInputStream.write(lengthBytes);
+                    gameInputStream.write(bytes);
+                } finally {
+                    gameInputStreamMutex.unlock();
+                }
             } catch (IOException e) {
                 // TODO
                 throw new RuntimeException(e);
@@ -341,7 +346,12 @@ public class Main {
                                 throw new IOException("EOF");
                             }
 
-                            gameInputStream.write(lineBuffer, 4, nextSize);
+                            gameInputStreamMutex.lock();
+                            try {
+                                gameInputStream.write(lineBuffer, 4, nextSize);
+                            } finally {
+                                gameInputStreamMutex.unlock();
+                            }
                         }
                     } catch (IOException e) {
                         e.printStackTrace();
