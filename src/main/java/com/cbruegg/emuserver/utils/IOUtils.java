@@ -2,11 +2,9 @@ package com.cbruegg.emuserver.utils;
 
 import java.io.*;
 import java.math.BigInteger;
-import java.nio.file.Path;
 import java.security.DigestOutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
 import java.util.Objects;
 
 public class IOUtils {
@@ -23,6 +21,15 @@ public class IOUtils {
             } catch (IOException e) {
                 return false;
             }
+        }
+    }
+
+    public static boolean copy(File from, File to) {
+        try {
+            new FileInputStream(from).transferTo(new FileOutputStream(to));
+            return true;
+        } catch (IOException e) {
+            return false;
         }
     }
 

@@ -23,8 +23,6 @@ public class JpegCompressor {
     }
 
     public static void compress(InputStream from, OutputStream into) throws IOException {
-        int frame = 0;
-
         var jpegParams = new JPEGImageWriteParam(null);
         jpegParams.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
         jpegParams.setCompressionQuality(0.95f);
@@ -60,10 +58,6 @@ public class JpegCompressor {
                     into.flush();
                     jpegOutputBuffer.writeTo(into);
                     into.flush();
-
-                    if (frame++ % 120 == 0) {
-                        System.out.println("Flushed frame " + (frame));
-                    }
 
                     jpegOutputBuffer.reset();
                     imageIntBuffer.clear();
