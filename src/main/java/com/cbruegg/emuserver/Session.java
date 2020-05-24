@@ -125,16 +125,6 @@ class Session {
         new Command.LoadGameSave().writeTo(gameInputStream, gameInputStreamMutex, gameInputConfirmationStream);
     }
 
-//    public Path getSaveState() throws IOException {
-//        var saveStateFile = Files.createTempFile(getDir().toPath(), "savestate", null);
-//        new Command.SaveState(saveStateFile.toAbsolutePath().toString()).writeTo(gameInputStream, gameInputStreamMutex, gameInputConfirmationStream);
-//        return saveStateFile;
-//    }
-//
-//    public void loadSaveState(Path saveState) throws IOException {
-//        new Command.LoadState(saveState.toAbsolutePath().toString()).writeTo(gameInputStream, gameInputStreamMutex, gameInputConfirmationStream);
-//    }
-
     public Path getSaveState() throws IOException {
         var saveStateFile = Files.createTempFile(getDir().toPath(), "savestate", null);
         new Command.SaveState(saveStateFile.toAbsolutePath().toString()).writeTo(gameInputStream, gameInputStreamMutex, gameInputConfirmationStream);
@@ -147,7 +137,7 @@ class Session {
     }
 
     public void loadSaveState(Path saveState) throws IOException {
-        var unzippedSaveStateFile = Files.createTempFile(getDir().toPath(), "savestate", ".gz");
+        var unzippedSaveStateFile = Files.createTempFile(getDir().toPath(), "savestate", null);
         try (var inputStream = new GZIPInputStream(Files.newInputStream(saveState))) {
             Files.copy(inputStream, unzippedSaveStateFile, StandardCopyOption.REPLACE_EXISTING);
         }
