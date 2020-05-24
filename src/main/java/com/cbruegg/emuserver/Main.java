@@ -105,11 +105,6 @@ public class Main {
             }
 
             var initialSaveGame = fileUploads.stream().findFirst().map(upload -> new File(upload.uploadedFileName())).orElse(null);
-            // TODO Remove
-            var overwriteInitialSaveGame = false;
-            if (overwriteInitialSaveGame) {
-                initialSaveGame = new File("C:\\Users\\mail\\Desktop\\3fe7e7a45d138d10b2d35cbb7fe3b0ea.nds.dsv");
-            }
             try {
 
                 var session = createNewSession(melonDsServerFile, melonDsBiosDir, romFile, initialSaveGame);
@@ -149,13 +144,10 @@ public class Main {
             var uploadedSaveGame = fileUploads.stream().findFirst().map(upload -> new File(upload.uploadedFileName())).orElseThrow();
 
             try {
-                var skip = false;
-                if (!skip) {
-                    var uploadedSaveGameBytes = Files.readAllBytes(uploadedSaveGame.toPath());
-                    session.getLastKnownSaveGameRef().set(uploadedSaveGameBytes);
-                    Files.write(saveGame.toPath(), uploadedSaveGameBytes);
-                    session.onSaveGameUploaded();
-                }
+                var uploadedSaveGameBytes = Files.readAllBytes(uploadedSaveGame.toPath());
+                session.getLastKnownSaveGameRef().set(uploadedSaveGameBytes);
+                Files.write(saveGame.toPath(), uploadedSaveGameBytes);
+                session.onSaveGameUploaded();
                 event.response().putHeader("content-type", "text/plain").setStatusCode(HttpURLConnection.HTTP_OK).end();
             } catch (IOException e) {
                 event.response().putHeader("content-type", "text/plain").setStatusCode(HttpURLConnection.HTTP_INTERNAL_ERROR).end("Could not create session!");
@@ -239,15 +231,8 @@ public class Main {
 
         var lastKnownSaveGameBytes = new AtomicReference<>(initialSaveGame != null ? Files.readAllBytes(initialSaveGame.toPath()) : new byte[0]);
 
-        if (false) {
-            // TODO Make this branch active again
-            if (initialSaveGame != null && !IOUtils.moveOrCopy(initialSaveGame, saveGame)) {
-                throw new IOException("Could not import initial savegame!");
-            }
-        } else {
-            if (initialSaveGame != null && !IOUtils.copy(initialSaveGame, saveGame)) {
-                throw new IOException("Could not import initial savegame!");
-            }
+        if (initialSaveGame != null && !IOUtils.moveOrCopy(initialSaveGame, saveGame)) {
+            throw new IOException("Could not import initial savegame!");
         }
 
         var dsServerProcess = new ProcessBuilder(
